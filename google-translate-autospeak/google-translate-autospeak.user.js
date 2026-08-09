@@ -1,11 +1,13 @@
 // ==UserScript==
 // @name         谷歌翻译·粘贴自动朗读
 // @namespace    https://github.com/TongzhouJia
-// @version      3.0.0
+// @version      3.0.1
 // @description  在 translate.google.com 粘贴后，等文字真正落进输入框，再点它自己的「听取原文」。Ctrl+Shift+A 开关，Ctrl+Shift+D 诊断。
 // @author       tom
 // @match        https://translate.google.com/*
 // @icon         https://translate.google.com/favicon.ico
+// @updateURL    https://raw.githubusercontent.com/TongzhouJia/userscripts/main/google-translate-autospeak/google-translate-autospeak.user.js
+// @downloadURL  https://raw.githubusercontent.com/TongzhouJia/userscripts/main/google-translate-autospeak/google-translate-autospeak.user.js
 // @grant        none
 // @run-at       document-idle
 // @noframes
