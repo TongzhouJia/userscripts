@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         谷歌翻译·粘贴自动朗读
 // @namespace    https://github.com/TongzhouJia
-// @version      3.1.0
+// @version      3.2.0
 // @description  在 translate.google.com 粘贴后，等文字落进输入框且译文渲染完毕，再点它自己的「听取原文」；被重渲染掐断会自动续读。Ctrl+Shift+A 开关，Ctrl+Shift+D 诊断。
 // @author       tom
 // @match        https://translate.google.com/*
@@ -21,7 +21,7 @@
   const TIMEOUT_MS = 4000;  // 等文字到位的上限
   const QUIET_MS = 700;     // DOM 连续这么久没变动才算「翻译渲染完了」（还被掐就调到 1200）
   const MAX_WAIT_MS = 8000; // 等 DOM 安静的上限，超时也照点（慢网别干等）
-  const RESUME_MS = 3500;   // 开播后这么久内就停了，判定是被掐断，自动续读
+  const RESUME_MS = 3500;   // 续读的时间窗：开播这么久之后才停的，一律当读完
   const MAX_RESUME = 1;     // 最多自动续几次（防死循环）
 
   const LS_KEY = 'gt-autospeak';
@@ -36,6 +36,7 @@
   const reloadedMidPlay = prevPlay > 0 && Date.now() - prevPlay < 15000;
   const markPlay = () => sessionStorage.setItem(PLAY_TS_KEY, String(Date.now()));
   let lastQuietReason = '(还没等过)';
+  let lastStopReason = '(还没读过)';
 
   // ── 定位「听取原文」按钮 ────────────────────────────────────────────
   // 实测 DOM（2026-08）：
@@ -152,14 +153,41 @@
     arm();
   }
 
+  // ── 抓住那个 <audio> ────────────────────────────────────────────────
+  // 谷歌的 TTS 走的是普通 <audio> 元素，它的 ended 事件是「读完了」的铁证。
+  // 抓到了就用它判断，抓不到（万一哪天改成 AudioContext）再退回按钮判据。
+  function watchAudio(state) {
+    const t0 = performance.now();
+    (function tick() {
+      if (state.stopped) return;
+      const a = [...document.querySelectorAll('audio')].find((x) => !x.paused && !x.ended);
+      if (a) {
+        state.audio = a;
+        a.addEventListener('ended', () => { state.endedNaturally = true; }, { once: true });
+        return;
+      }
+      if (performance.now() - t0 > 3000) return;
+      setTimeout(tick, 120);
+    })();
+  }
+
   // ── 断读自动续 ──────────────────────────────────────────────────────
   // 上面那道防线挡不住「译文回来得特别晚」或「谷歌自己二次渲染」的情况，
-  // 所以再加一层兜底：起播后盯着 aria-label，如果 RESUME_MS 内就停了，
-  // 那不是读完，是被掐了 —— 等 DOM 重新安静下来再读一遍。最多续 MAX_RESUME 次。
-  function watchPlayback(attempt) {
+  // 所以再加一层兜底。但「多久算读完」猜不得 —— 短句一两秒就读完了，
+  // 光看时间会把正常读完当成掐断，于是读两遍（v3.1.0 就栽在这）。
+  //
+  // 改成看证据，两条否决任满足其一就当读完、绝不续读：
+  //   1. <audio> 触发过 ended —— 铁证，音频自己播到头了。
+  //   2. 当初点的那个按钮实例还在 DOM 里 —— 被重渲染掐断时整个按钮会被换掉，
+  //      旧实例会脱离 document。按钮还在 = 没发生重渲染 = 是正常停的
+  //      （也包括用户自己按 Ctrl+Shift+S 停的）。
+  // 只有「按钮被换掉 + 没听到 ended + 还在 RESUME_MS 窗口内」才续读。
+  function watchPlayback(btn0, attempt) {
     attempt = attempt || 0;
     const t0 = performance.now();
+    const state = { stopped: false, endedNaturally: false, audio: null };
     let started = false;
+    watchAudio(state);
 
     (function tick() {
       const btn = findListenButton();
@@ -168,28 +196,34 @@
 
       if (!started) {
         if (playing) started = true;
-        else if (dt > 2000) return; // 2 秒还没起播：可能界面语言让 aria-label 判据失效，放弃盯梢
+        else if (dt > 2000) { state.stopped = true; return; } // 界面语言可能让 aria-label 判据失效，放弃盯梢
         return setTimeout(tick, 150);
       }
 
       if (playing) return setTimeout(tick, 250);
+      state.stopped = true;
 
-      if (dt < RESUME_MS && attempt < MAX_RESUME) {
-        toast('🔁 朗读被页面重渲染掐断，等它稳下来再读一遍');
-        return whenQuiet(
-          () => {
-            const b = findListenButton();
-            if (isUsable(b)) {
-              play(b);
-              watchPlayback(attempt + 1);
-            } else {
-              toast('⚠️ 续读失败：按钮不可用');
-            }
-          },
-          { quiet: 600, max: 4000 }
-        );
-      }
-      // 读满 RESUME_MS 才停 = 正常读完
+      const alive = document.contains(btn0);          // 按钮实例还在 = 没被重渲染换掉
+      const finished = state.endedNaturally || alive; // 任一成立就是读完了
+      lastStopReason = finished
+        ? (state.endedNaturally ? '读完（audio ended）' : '读完（按钮没被换掉）')
+        : '被掐断（按钮实例已脱离 DOM）';
+
+      if (finished || dt >= RESUME_MS || attempt >= MAX_RESUME) return;
+
+      toast('🔁 朗读被页面重渲染掐断，等它稳下来再读一遍');
+      whenQuiet(
+        () => {
+          const b = findListenButton();
+          if (isUsable(b)) {
+            play(b);
+            watchPlayback(b, attempt + 1);
+          } else {
+            toast('⚠️ 续读失败：按钮不可用');
+          }
+        },
+        { quiet: 600, max: 4000 }
+      );
     })();
   }
 
@@ -213,7 +247,7 @@
             markPlay();
             play(btn);
             toast('🔊 朗读中');
-            watchPlayback();
+            watchPlayback(btn);
           } else {
             toast('⚠️ 没找到「听取原文」按钮 — 按 Ctrl+Shift+D 看诊断');
           }
@@ -246,6 +280,7 @@
         console.log('[autospeak] 源文本面板:', panel);
         console.log('[autospeak] 命中的朗读按钮:', findListenButton());
         console.log('[autospeak] 上次等 DOM 安静的结果:', lastQuietReason, '(quiet=正常 / timeout=页面一直在动)');
+        console.log('[autospeak] 上次朗读为什么停:', lastStopReason);
         console.log(
           '[autospeak] 本次载入是不是读到一半整页刷新的:',
           reloadedMidPlay ? '是 —— 那就不是 SPA 重渲染，是真导航' : '否'

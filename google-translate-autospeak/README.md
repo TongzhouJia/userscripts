@@ -35,7 +35,7 @@ const SETTLE_MS  = 400;   // 文字到位后再静置多久才开始等 DOM 安�
 const TIMEOUT_MS = 4000;  // 等文字到位的上限
 const QUIET_MS   = 700;   // DOM 连续这么久没变动才算「译文渲染完了」
 const MAX_WAIT_MS= 8000;  // 等 DOM 安静的上限，超时也照点
-const RESUME_MS  = 3500;  // 开播后这么久内就停了 = 被掐断，自动续读
+const RESUME_MS  = 3500;  // 续读的时间窗，开播这么久之后才停的一律当读完
 const MAX_RESUME = 1;     // 最多自动续几次
 ```
 
@@ -50,7 +50,22 @@ const MAX_RESUME = 1;     // 最多自动续几次
 v3.0 只等「文字落进 textarea + 400ms」，翻译还在路上就开读，所以必被后到的渲染掐断。v3.1.0 加了两道防线：
 
 1. **等 DOM 安静再开读。** `MutationObserver` 盯着 `document.body` 的 `childList`/`characterData`，连续 `QUIET_MS` 没有任何变动才认为这一轮渲染结束。判据故意不用「译文出现了没」—— 译文侧的选择器（`ryNqvb`、`jsname="W297wb"`）改版就废，而「安静」不依赖任何 class。超过 `MAX_WAIT_MS` 还在动就照点，慢网别干等。
-2. **断读自动续。** 起播后盯 `aria-label`，如果 `RESUME_MS` 内就停了，那不是读完是被掐了，等 DOM 重新安静再读一遍，最多续 `MAX_RESUME` 次。
+2. **断读自动续。** 起播后盯 `aria-label`，停了就判断是读完还是被掐，被掐才等 DOM 重新安静再读一遍，最多续 `MAX_RESUME` 次。
+
+### ⚠️ 「读两遍」是 v3.1.0 的 bug，v3.2.0 修了
+
+v3.1.0 拿时间当判据：开播 3.5 秒内停 = 被掐断。短句一两秒就正常读完了，照样落在窗口里，于是又读一遍。**「多久算读完」根本猜不得**，改成看证据，两条否决任满足其一就当读完、绝不续读：
+
+1. **`<audio>` 触发过 `ended`** —— 铁证，音频自己播到头了。谷歌 TTS 走的是普通 `<audio>` 元素，脚本起播后扫出正在播的那个挂上监听。
+2. **当初点的那个按钮实例还在 DOM 里**（`document.contains(btn0)`）—— 被重渲染掐断时整个按钮会被换掉、旧实例脱离 document。按钮还在 = 没发生重渲染 = 是正常停的（也包括你自己按 `Ctrl+Shift+S` 停的）。
+
+只有「按钮被换掉 **且** 没听到 `ended` **且** 还在 `RESUME_MS` 窗口内」才续读。取舍是偏保守：万一哪天谷歌换成 AudioContext（抓不到 `<audio>`）而按钮又没被换，会漏续一次——但宁可漏续也不要读两遍，漏了按 `Ctrl+Shift+S` 就行。
+
+按 `Ctrl+Shift+D` 能看到上次为什么停：
+
+```
+[autospeak] 上次朗读为什么停: 读完（audio ended）
+```
 
 **怎么确认是不是真刷新：** 断了之后按 `Ctrl+Shift+D`，看这两行——
 
