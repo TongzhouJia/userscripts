@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         视频倍速快捷键
 // @namespace    https://github.com/TongzhouJia/userscripts
-// @version      1.0.0
+// @version      1.1.0
 // @description  Shift+1 恢复 1 倍速，Shift+2 双倍，Shift+3 三倍（三倍是播放器菜单里没有的）。Ctrl+Shift+A 开关，Ctrl+Shift+D 诊断。
 // @author       tom
-// @match        *://*/*
-// @grant        none
+// @match        https://edu.51cto.com/*
+// @match        https://*.51cto.com/lesson/*
+// @grant        unsafeWindow
 // @run-at       document-idle
 // @updateURL    https://raw.githubusercontent.com/TongzhouJia/userscripts/main/video-speed-hotkeys/video-speed-hotkeys.user.js
 // @downloadURL  https://raw.githubusercontent.com/TongzhouJia/userscripts/main/video-speed-hotkeys/video-speed-hotkeys.user.js
@@ -13,6 +14,10 @@
 
 (function () {
   'use strict';
+
+  // 页面自己的全局（videojs 就挂在这儿）。带 @grant 时脚本跑在沙箱里，
+  // 普通的 window 看不到页面定义的全局，必须走 unsafeWindow。
+  const W = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
 
   // ── 配置 ────────────────────────────────────────────────────────────
   // 数字键 → 倍速。想加 4 倍就写 Digit4: 4，菜单会跟着多一项。
@@ -41,11 +46,11 @@
 
   // video.js 会把 player 实例挂在 <video> 的 player 属性上，
   // 走它的 API 才能让界面上那个「播放速度」按钮同步显示新倍速。
-  // @grant none 时脚本跑在页面上下文里，window.videojs 直接可见。
+  // 沙箱里看不到页面全局，所以统一走上面的 W（unsafeWindow）。
   function playerOf(video) {
     if (!video) return null;
     if (video.player && typeof video.player.playbackRate === 'function') return video.player;
-    const vjs = window.videojs;
+    const vjs = W.videojs;
     if (vjs && video.id) {
       try {
         const p = vjs.getPlayer ? vjs.getPlayer(video.id) : vjs.players[video.id];
@@ -152,7 +157,7 @@
   function diagnose() {
     const vids = [...document.querySelectorAll('video')];
     console.log('[video-speed-hotkeys] frame:', location.href);
-    console.log('[video-speed-hotkeys] window.videojs:', typeof window.videojs);
+    console.log('[video-speed-hotkeys] videojs:', typeof W.videojs);
     console.log('[video-speed-hotkeys] 选中的 video:', findVideo());
     console.table(
       vids.map((v, i) => ({

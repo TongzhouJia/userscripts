@@ -31,6 +31,14 @@
 
 ## ⚠️ 已知坑
 
+- **千万别粘贴装。** 粘贴装出来的副本一旦缺个字符，Tampermonkey 注入时会报
+  `Failed to execute 'appendChild' on 'Node': Invalid or unexpected token`，紧接着一句
+  `injected: env: missing script "<uuid>"` —— 脚本压根没跑，表现就是「按键完全没反应」。
+  从 raw 链接装，或者本地 `python3 -m http.server` 起一个端口从 `http://127.0.0.1:<端口>/...` 装。
+- **本脚本用 `@grant unsafeWindow` 而不是 `none`。** 51cto 的 `videojs` 是页面全局，
+  带 `@grant` 时脚本跑在沙箱里，普通 `window` 看不见它，必须走 `unsafeWindow`（脚本顶部的 `W`）。
+  顺带的好处：带 `@grant` 的注入方式不走「内联 `<script>` + appendChild」那条路。
+
 - **必须用 `e.code` 不能用 `e.key`。** `Shift+1` 在美式键盘上 `e.key` 是 `'!'`，换个布局又变别的，只有 `e.code === 'Digit1'` 是稳的。
 - **换清晰度会把倍速拍回 1x。** 很多播放器切源时重建 video 元素。脚本按完键后 1.5 秒内会反复抢回来，
   但**手动换清晰度隔太久**就得重新按一次。
