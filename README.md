@@ -10,6 +10,7 @@
 | [ytmusic-no-leave-prompt](./ytmusic-no-leave-prompt/) | `music.youtube.com` | 干掉关标签页时的「Leave site?」确认弹窗 |
 | [jisho-paste-search](./jisho-paste-search/) | `jisho.org` | 搜索框粘贴内容后自动发起搜索 |
 | [video-speed-hotkeys](./video-speed-hotkeys/) | `edu.51cto.com` | Shift+1/2/3 切 1x/2x/3x 倍速（3 倍是播放器菜单里没有的） |
+| [gemini-argon-hotkey](./gemini-argon-hotkey/) | `gemini.google.com` | Ctrl+Shift+O 开新对话后自动切到 4 Argon、思考等级「高点」 |
 
 ## 🔧 安装
 
